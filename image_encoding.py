@@ -3,84 +3,106 @@ import cv2
 import numpy as np
 from PIL import Image
 from tqdm import tqdm 
+import matplotlib.pyplot as plt
 
 def create_color_to_label_map(mask_folder_path):
     """
     Scans all masks in a folder to find unique colors and create a mapping
     from color to a class label.
+    For binary masks: 0 (black) = background, 255 (white) = foreground
     """
     print(f"Scanning masks in '{mask_folder_path}'...")
     
     unique_colors = set()
     
-
-    mask_files = os.listdir(mask_folder_path)
-    print(mask_files)
+    mask_files = [f for f in os.listdir(mask_folder_path) if f.endswith('.png')]
+    print(f"Found {len(mask_files)} mask files")
    
-    for filename in tqdm(mask_files, desc="Finding unique colors"):
+    for filename in tqdm(mask_files[:5], desc="Finding unique colors"):  # Sample first 5 files
         mask_path = os.path.join(mask_folder_path, filename)
         
-        # Open the mask image and convert to a NumPy array
-        mask_bgr = cv2.imread(mask_path)
-
-        mask_rgb = cv2.cvtColor(mask_bgr, cv2.COLOR_BGR2RGB)
-        # Reshape the (H, W, C) array to (H*W, C) to get a list of pixels
-        pixels = mask_rgb.reshape(-1, 3)
-        
-        # Get unique rows (unique RGB colors)
-        unique_pixel_colors = np.unique(pixels, axis=0)
-        
-        # Add the unique colors found in this image to our overall set
-        for color in unique_pixel_colors:
-            unique_colors.add(tuple(color))
+        # Read as grayscale since our masks are binary
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            continue
             
-
+        # Get unique pixel values
+        unique_values = np.unique(mask)
+        for value in unique_values:
+            unique_colors.add(value)
+            
     sorted_colors = sorted(list(unique_colors))
     
     # Create the color-to-label dictionary
-    color_to_label = {color: label for label, color in enumerate(sorted_colors)}
+    # Background (0) -> 0, Foreground (255) -> 1
+    color_to_label = {}
+    for i, color in enumerate(sorted_colors):
+        if color == 0:
+            color_to_label[color] = 0  # Background
+        else:
+            color_to_label[color] = 1  # Foreground (cat/dog)
     
     print("\nScan complete!")
-    print(f"Found {len(color_to_label)} unique classes.")
+    print(f"Found {len(color_to_label)} unique classes: {color_to_label}")
     
     return color_to_label
 
 
-mask_path = "dataset/cat_and_dog_dataset/SegmentationClass"
-COLOR_TO_LABEL = create_color_to_label_map(mask_path)
+mask_folder_path = "dataset/cat_and_dog_dataset/SegmentationClass"
+COLOR_TO_LABEL = create_color_to_label_map(mask_folder_path)
 
 def encode_mask_to_grayscale(mask_path, color_map):
     """
-    Converts an RGB segmentation mask to a grayscale mask with class labels.
+    Converts a binary segmentation mask to encoded grayscale mask with class labels.
     """
-    mask_bgr = cv2.imread(mask_path)
-    mask_rgb = cv2.cvtColor(mask_bgr, cv2.COLOR_BGR2RGB)
-    height, width, _ = mask_rgb.shape
-    
-    # Create an empty grayscale mask (height x width)
-    mask_grayscale = np.zeros((height, width), dtype=np.uint8)
-    
-    # For each color in our map, find where it is in the mask and assign the label
-    for color, label in color_map.items():
-        # Find pixels matching the color
-        matches = np.where(np.all(mask_rgb == color, axis=-1))
-        mask_grayscale[matches] = label
+    # Read as grayscale since our masks are already binary
+    mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+    if mask is None:
+        return None
         
-    return mask_grayscale
+    height, width = mask.shape
+    
+    # Create encoded mask
+    encoded_mask = np.zeros((height, width), dtype=np.uint8)
+    
+    # Map pixel values to class labels
+    for pixel_value, class_label in color_map.items():
+        encoded_mask[mask == pixel_value] = class_label
+        
+    return encoded_mask
 
+def batch_encode_masks(input_folder, output_folder, color_map):
+    """
+    Encode all masks in a folder
+    """
+    os.makedirs(output_folder, exist_ok=True)
+    
+    mask_files = [f for f in os.listdir(input_folder) if f.endswith('.png')]
+    print(f"Encoding {len(mask_files)} masks...")
+    
+    for filename in tqdm(mask_files, desc="Encoding masks"):
+        input_path = os.path.join(input_folder, filename)
+        output_filename = filename.replace('.png', '.png')  # Keep as PNG
+        output_path = os.path.join(output_folder, output_filename)
+        
+        encoded_mask = encode_mask_to_grayscale(input_path, color_map)
+        if encoded_mask is not None:
+            cv2.imwrite(output_path, encoded_mask)
+    
+    print(f"All masks encoded and saved to '{output_folder}'")
 
-mask_path = "dataset/cat_and_dog_dataset/SegmentationClass/1.png" 
-grayscale_label_mask = encode_mask_to_grayscale(mask_path, COLOR_TO_LABEL)
+# Batch encode all masks
+input_folder = "dataset/cat_and_dog_dataset/SegmentationClass"
+output_folder = "dataset/cat_and_dog_dataset/encoded_masks"
+batch_encode_masks(input_folder, output_folder, COLOR_TO_LABEL)
 
-
-import matplotlib.pyplot as plt
-save_path = "dataset/cat_and_dog_dataset/encoded_masks/1.jpg"
-
-cv2.imwrite(save_path, grayscale_label_mask)
-plt.imshow(grayscale_label_mask)
-
-
-
-new_grayscale_label_mask = cv2.imread(save_path)
-new_grayscale_label_mask = cv2.cvtColor(new_grayscale_label_mask, cv2.COLOR_BGR2GRAY)
-plt.imshow(new_grayscale_label_mask)
+# Test with one mask
+test_files = [f for f in os.listdir(input_folder) if f.endswith('.png')]
+if test_files:
+    test_mask_path = os.path.join(input_folder, test_files[0])
+    encoded_mask = encode_mask_to_grayscale(test_mask_path, COLOR_TO_LABEL)
+    
+    print(f"Testing with: {test_files[0]}")
+    print(f"Original mask shape: {encoded_mask.shape if encoded_mask is not None else 'None'}")
+    print(f"Unique values in encoded mask: {np.unique(encoded_mask) if encoded_mask is not None else 'None'}")
+    print(f"Class mapping: {COLOR_TO_LABEL}")
