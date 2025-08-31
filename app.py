@@ -9,7 +9,7 @@ import os
 import glob
 from datetime import datetime
 
-from segmentation_model import create_model
+# Model creation is handled directly in the loading function
 
 app = Flask(__name__)
 
@@ -18,11 +18,29 @@ loaded_model = None
 MODEL_PATH = None
 IMG_SIZE = (128, 128)
 
+# Initialize model loading
+def initialize_model():
+    global loaded_model
+    if loaded_model is None:
+        print("Initializing model...")
+        success, message = load_latest_model()
+        if success:
+            print(f"✅ {message}")
+        else:
+            print(f"⚠️  {message}")
+        return success
+    return True
+
 def load_latest_model():
     global loaded_model, MODEL_PATH
     
-    # Look for models in results and checkpoints directories
-    model_patterns = ['results/final_model_*.h5', 'checkpoints/best_model_*.h5']
+    # Look for models in current directory and saved_models directory
+    model_patterns = [
+        '*.keras',
+        'saved_models/*.keras',
+        'best_model*.keras',
+        'cat_dog_segmentation*.keras'
+    ]
     all_models = []
     
     for pattern in model_patterns:
@@ -31,8 +49,12 @@ def load_latest_model():
     if not all_models:
         return False, "No trained models found"
     
-    # Get the most recent model
-    latest_model = max(all_models, key=os.path.getctime)
+    # Prefer best_model or cat_dog_segmentation models
+    best_models = [m for m in all_models if 'best_model' in m or 'cat_dog_segmentation' in m]
+    if best_models:
+        latest_model = max(best_models, key=os.path.getctime)
+    else:
+        latest_model = max(all_models, key=os.path.getctime)
     
     try:
         loaded_model = tf.keras.models.load_model(latest_model)
@@ -72,14 +94,19 @@ def postprocess_mask(prediction):
     # Convert to 3-channel image for visualization
     mask_colored = np.zeros((*mask.shape, 3), dtype=np.uint8)
     
-    # Color mapping: background=black, pet=white, border=gray
+    # Get number of classes dynamically  
+    num_classes = prediction[0].shape[-1]
+    
+    # Color mapping: background=black, pet=white
     mask_colored[mask == 0] = [0, 0, 0]      # Background - black
     mask_colored[mask == 1] = [255, 255, 255]  # Pet - white
-    mask_colored[mask == 2] = [128, 128, 128]  # Border - gray
+    if num_classes > 2:  # Only if there's a third class
+        mask_colored[mask == 2] = [128, 128, 128]  # Border - gray
     
     return mask_colored
 
 @app.route('/')
+@app.route('/health')
 def health_check():
     global loaded_model, MODEL_PATH
     
@@ -108,9 +135,8 @@ def segment_image():
     try:
         # Check if model is loaded
         if loaded_model is None:
-            success, message = load_latest_model()
-            if not success:
-                return jsonify({'error': message}), 400
+            if not initialize_model():
+                return jsonify({'error': 'Failed to load model'}), 400
         
         # Check if image data is provided
         if 'image' not in request.files and 'image_data' not in request.json:
@@ -142,12 +168,14 @@ def segment_image():
         mask_pil.save(mask_buffer, format='PNG')
         mask_base64 = base64.b64encode(mask_buffer.getvalue()).decode('utf-8')
         
-        # Calculate confidence scores
+        # Calculate confidence scores dynamically
+        num_classes = prediction[0].shape[-1]
         confidence_scores = {
             'background': float(np.mean(prediction[0][:,:,0])),
-            'pet': float(np.mean(prediction[0][:,:,1])),
-            'border': float(np.mean(prediction[0][:,:,2]))
+            'pet': float(np.mean(prediction[0][:,:,1]))
         }
+        if num_classes > 2:  # Only if there's a third class
+            confidence_scores['border'] = float(np.mean(prediction[0][:,:,2]))
         
         return jsonify({
             'success': True,
@@ -207,16 +235,19 @@ def model_status():
 @app.route('/train/status', methods=['GET'])
 def training_status():
     # Check for training artifacts
-    checkpoints = glob.glob('checkpoints/*.h5')
-    results = glob.glob('results/*.h5')
+    keras_models = glob.glob('*.keras')
+    saved_models = glob.glob('saved_models/*.keras')
     logs = glob.glob('logs/*')
     
+    all_models = keras_models + saved_models
+    
     return jsonify({
-        'checkpoints_available': len(checkpoints),
-        'final_models_available': len(results),
+        'models_available': len(all_models),
+        'root_models': len(keras_models),
+        'saved_models': len(saved_models),
         'training_logs_available': len(logs),
-        'latest_checkpoint': max(checkpoints, key=os.path.getctime) if checkpoints else None,
-        'latest_model': max(results, key=os.path.getctime) if results else None
+        'latest_model': max(all_models, key=os.path.getctime) if all_models else None,
+        'available_models': all_models
     })
 
 @app.route('/predict', methods=['POST'])
@@ -242,4 +273,8 @@ def predict():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
+    # Load model on startup
+    print("Loading model on startup...")
+    initialize_model()
+    
     app.run(host='0.0.0.0', port=5001, debug=True)
