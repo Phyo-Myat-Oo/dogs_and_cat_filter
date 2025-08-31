@@ -1,14 +1,7 @@
 # Dataset files
 dataset/
-*.jpg
-*.jpeg
-*.png
-*.gif
-*.bmp
-*.tiff
-*.webp
 
-# Model files
+# Model files (Large ML model files)
 *.keras
 *.h5
 *.hdf5
@@ -29,7 +22,7 @@ best_model*
 *_model*
 model_*
 
-# Training artifacts
+# Training artifacts and results
 logs/
 runs/
 tensorboard_logs/
@@ -38,12 +31,25 @@ prediction_results.png
 data_samples.png
 *.npy
 *.npz
+test_results/
+results/
+outputs/
+experiments/
 
-# Jupyter Notebook checkpoints
+# Large image files (optional - uncomment if you don't want to track images)
+# *.jpg
+# *.jpeg
+# *.png
+# *.gif
+# *.bmp
+# *.tiff
+# *.webp
+
+# Jupyter Notebook files
 .ipynb_checkpoints/
 *.ipynb
 
-# Python cache
+# Python cache and compiled files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -77,28 +83,17 @@ env.bak/
 venv.bak/
 .conda/
 
-# IDE files
+# IDE and editor files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.DS_Store
-Thumbs.db
 
 # Environment variables
 .env
 .env.local
 .env.*.local
-
-# Test results
-test_results/
-results/
-outputs/
-experiments/
-
-# Docker
-.dockerignore
 
 # Logs
 *.log
@@ -110,7 +105,7 @@ temp/
 *.tmp
 *.temp
 
-# OS files
+# OS generated files
 .DS_Store
 .DS_Store?
 ._*
@@ -119,6 +114,5 @@ temp/
 ehthumbs.db
 Thumbs.db
 
-# Git files
-.git/
-.gitattributes
+# Docker
+.dockerignore
